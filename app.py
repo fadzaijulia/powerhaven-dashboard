@@ -38,8 +38,8 @@ def load_data():
         if "client_id" in df.columns:
             merged_df = merged_df.merge(df, on="client_id", how="left", suffixes=("", f"_{t}"))
 
-    # Ensure latitude and longitude are numeric
-    for col in ["latitude", "longitude"]:
+    # Ensure latitude and longitude columns are numeric
+    for col in ["latitude", "longitude", "latitude_survey_points", "longitude_survey_points"]:
         if col in merged_df.columns:
             merged_df[col] = pd.to_numeric(merged_df[col], errors="coerce")
 
@@ -52,24 +52,18 @@ st.title("💧 Powerhaven Boreholes & Solar Dashboard")
 
 with st.spinner("Loading data from Supabase..."):
     df = load_data()
-with st.spinner("Loading data from Supabase..."):
-    df = load_data()
+
+if df.empty:
+    st.error("No data loaded.")
+    st.stop()
 
 # ------------------------
-# Debug: Check coordinates
+# Debug: Show coordinates
 # ------------------------
 st.subheader("Debug: Coordinates")
-st.write(df[["client_name", "latitude", "longitude"]])
-st.write(df.dtypes)
-st.write("Number of valid points:", df.dropna(subset=["latitude","longitude"]).shape[0])
-
-if df.empty:
-    st.error("No data loaded.")
-    st.stop()
-
-if df.empty:
-    st.error("No data loaded.")
-    st.stop()
+st.write(df[["client_name", "latitude", "longitude", "latitude_survey_points", "longitude_survey_points"]])
+st.write("Number of valid borehole points:", df.dropna(subset=["latitude","longitude"]).shape[0])
+st.write("Number of valid survey points:", df.dropna(subset=["latitude_survey_points","longitude_survey_points"]).shape[0])
 
 # ============================
 # 🔹 CLIENT FILTER (table only)
@@ -85,23 +79,26 @@ st.dataframe(filtered_df)
 # ============================
 # 🔹 MAP WITH PYDECK (all clients)
 # ============================
-map_df = df.dropna(subset=["latitude", "longitude"])
+
+# Combine coordinates: use borehole coords if available, otherwise survey point coords
+map_df = df.copy()
+map_df["map_lat"] = map_df["latitude"].combine_first(map_df["latitude_survey_points"])
+map_df["map_lon"] = map_df["longitude"].combine_first(map_df["longitude_survey_points"])
+
+# Drop rows with no coordinates
+map_df = map_df.dropna(subset=["map_lat", "map_lon"])
 
 if map_df.empty:
     st.info("No location data available to display on the map.")
 else:
-    # Debug: show what Pydeck will render
-    st.write("Map Data Preview:")
-    st.write(map_df[["client_name", "latitude", "longitude"]])
-
-    # Assign each client a unique color
+    # Assign a unique color for each client
     unique_clients = map_df["client_name"].dropna().unique().tolist()
     color_map = {name: [int(hash(name) % 256), int((hash(name)*7) % 256), int((hash(name)*13) % 256), 160] for name in unique_clients}
     map_df["color"] = map_df["client_name"].map(color_map)
 
-    # Default view: mean of coordinates
-    initial_lat = map_df["latitude"].mean()
-    initial_lon = map_df["longitude"].mean()
+    # Default map view
+    initial_lat = map_df["map_lat"].mean()
+    initial_lon = map_df["map_lon"].mean()
 
     st.subheader("📍 Borehole / Survey Locations for All Clients")
     st.pydeck_chart(pdk.Deck(
@@ -110,18 +107,17 @@ else:
             latitude=initial_lat,
             longitude=initial_lon,
             zoom=10,
-            pitch=0,
+            pitch=0
         ),
         layers=[
             pdk.Layer(
                 "ScatterplotLayer",
                 data=map_df,
-                get_position='[longitude, latitude]',
+                get_position='[map_lon, map_lat]',
                 get_color='color',
                 get_radius=50,
-                pickable=True,
+                pickable=True
             )
         ]
     ))
-
 
