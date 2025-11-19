@@ -5,7 +5,7 @@ import pydeck as pdk
 
 # --- Supabase connection ---
 url = "https://mhcsryyqvhyntzrbdyuc.supabase.co"
-key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1oY3J5cXlxdmh5cmJkeXVjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE4MDM1NTcsImV4cCI6MjA3NzM3OTU1N30.7aa5wtN-1XQbVsOchmsSyRe2CcpYDzPyBMPG59zsrOI"
+key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1oY3NyeXlxdmh5bnR6cmJkeXVjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE4MDM1NTcsImV4cCI6MjA3NzM3OTU1N30.7aa5wtN-1XQbVsOchmsSyRe2CcpYDzPyBMPG59zsrOI"
 supabase: Client = create_client(url, key)
 
 st.set_page_config(page_title="Powerhaven Boreholes Dashboard", layout="wide")
@@ -101,3 +101,4 @@ if not map_df.empty:
     ))
 else:
     st.info("No location data available to display on the map.")
+
