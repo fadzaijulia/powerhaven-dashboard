@@ -15,27 +15,25 @@ st.set_page_config(page_title="Powerhaven Boreholes Dashboard", layout="wide")
 # ============================
 def load_data():
     # Load tables
-    tables = ["clients", "boreholes", "survey_points", "siting_reports", "drilling_reports"]
-    dataframes = {}
-    for table in tables:
-        try:
-            df = pd.DataFrame(supabase.table(table).select("*").execute().data)
-            if "client_id" in df.columns:
-                df["client_id"] = df["client_id"].astype(str)
-            dataframes[table] = df
-        except Exception as e:
-            st.warning(f"Failed to load table '{table}': {e}")
-            dataframes[table] = pd.DataFrame()
+    try:
+        clients_df = pd.DataFrame(supabase.table("clients").select("*").execute().data)
+        boreholes_df = pd.DataFrame(supabase.table("boreholes").select("*").execute().data)
+        survey_df = pd.DataFrame(supabase.table("survey_points").select("*").execute().data)
+    except Exception as e:
+        st.error(f"Error loading data from Supabase: {e}")
+        return pd.DataFrame()
 
-    # Merge tables
-    clients_df = dataframes["clients"]
-    merged_df = clients_df.copy()
-    for t in ["boreholes", "survey_points", "siting_reports", "drilling_reports"]:
-        df = dataframes[t]
+    # Ensure client_id is string
+    for df in [clients_df, boreholes_df, survey_df]:
         if "client_id" in df.columns:
-            merged_df = merged_df.merge(df, on="client_id", how="left", suffixes=("", f"_{t}"))
+            df["client_id"] = df["client_id"].astype(str)
 
-    # Ensure all coordinate columns are numeric
+    # Merge tables on client_id
+    merged_df = clients_df.copy()
+    merged_df = merged_df.merge(boreholes_df, on="client_id", how="left", suffixes=("", "_bore"))
+    merged_df = merged_df.merge(survey_df, on="client_id", how="left", suffixes=("", "_survey"))
+
+    # Ensure coordinates are numeric
     for col in ["latitude", "longitude", "latitude_survey_points", "longitude_survey_points"]:
         if col in merged_df.columns:
             merged_df[col] = pd.to_numeric(merged_df[col], errors="coerce")
@@ -54,67 +52,54 @@ if df.empty:
     st.error("No data loaded.")
     st.stop()
 
-# ------------------------
-# Debug: Check coordinates
-# ------------------------
-st.subheader("Debug: Coordinates")
-st.write(df[["client_name", "latitude", "longitude", "latitude_survey_points", "longitude_survey_points"]])
-st.write("Number of valid borehole points:", df.dropna(subset=["latitude","longitude"]).shape[0])
-st.write("Number of valid survey points:", df.dropna(subset=["latitude_survey_points","longitude_survey_points"]).shape[0])
-
 # ============================
-# 🔹 CLIENT FILTER (Table)
+# 🔹 CLIENT FILTER
 # ============================
 client_options = df["client_name"].dropna().unique().tolist()
-selected_client = st.selectbox("Select Client to view table", options=client_options)
-
+selected_client = st.selectbox("Select Client to view data", options=client_options)
 filtered_df = df[df["client_name"] == selected_client]
 
 st.subheader(f"📊 Data for {selected_client}")
 st.dataframe(filtered_df)
 
 # ============================
-# 🔹 MAP WITH PYDECK
+# 🔹 MAP
 # ============================
+# Combine coordinates: borehole first, then survey
+map_df = filtered_df.copy()
+map_df["map_lat"] = map_df["latitude"].combine_first(map_df["latitude_survey_points"])
+map_df["map_lon"] = map_df["longitude"].combine_first(map_df["longitude_survey_points"])
+map_df = map_df.dropna(subset=["map_lat", "map_lon"])
 
-# Boreholes: blue
-bore_df = df.dropna(subset=["latitude","longitude"]).copy()
-bore_df["map_lat"] = bore_df["latitude"]
-bore_df["map_lon"] = bore_df["longitude"]
-bore_df["color"] = [[0,128,255,160]]*len(bore_df)
-
-# Survey points: orange
-survey_df = df.dropna(subset=["latitude_survey_points","longitude_survey_points"]).copy()
-survey_df["map_lat"] = survey_df["latitude_survey_points"]
-survey_df["map_lon"] = survey_df["longitude_survey_points"]
-survey_df["color"] = [[255,165,0,160]]*len(survey_df)
-
-# Combine for map
-map_df = pd.concat([bore_df, survey_df], ignore_index=True)
-
+# If no valid coordinates, show a test point
 if map_df.empty:
-    st.info("No location data available to display on the map.")
+    map_df = pd.DataFrame({
+        "map_lat": [-17.8277],
+        "map_lon": [31.0530],
+        "color": [[0,128,255,160]],
+        "client_name": ["Test Client"]
+    })
 else:
-    initial_lat = map_df["map_lat"].mean()
-    initial_lon = map_df["map_lon"].mean()
+    map_df["color"] = [[0,128,255,160]]*len(map_df)
 
-    st.subheader("📍 Borehole & Survey Locations")
-    st.pydeck_chart(pdk.Deck(
-        map_style='mapbox://styles/mapbox/light-v9',
-        initial_view_state=pdk.ViewState(
-            latitude=initial_lat,
-            longitude=initial_lon,
-            zoom=10,
-            pitch=0
-        ),
-        layers=[
-            pdk.Layer(
-                "ScatterplotLayer",
-                data=map_df,
-                get_position='[map_lon, map_lat]',
-                get_color='color',
-                get_radius=50,
-                pickable=True
-            )
-        ]
-    ))
+st.subheader("📍 Borehole & Survey Locations")
+
+st.pydeck_chart(pdk.Deck(
+    map_style='mapbox://styles/mapbox/light-v9',
+    initial_view_state=pdk.ViewState(
+        latitude=map_df["map_lat"].mean(),
+        longitude=map_df["map_lon"].mean(),
+        zoom=10,
+        pitch=0
+    ),
+    layers=[
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=map_df,
+            get_position='[map_lon, map_lat]',
+            get_color='color',
+            get_radius=50,
+            pickable=True
+        )
+    ]
+))
