@@ -52,6 +52,20 @@ st.title("💧 Powerhaven Boreholes & Solar Dashboard")
 
 with st.spinner("Loading data from Supabase..."):
     df = load_data()
+with st.spinner("Loading data from Supabase..."):
+    df = load_data()
+
+# ------------------------
+# Debug: Check coordinates
+# ------------------------
+st.subheader("Debug: Coordinates")
+st.write(df[["client_name", "latitude", "longitude"]])
+st.write(df.dtypes)
+st.write("Number of valid points:", df.dropna(subset=["latitude","longitude"]).shape[0])
+
+if df.empty:
+    st.error("No data loaded.")
+    st.stop()
 
 if df.empty:
     st.error("No data loaded.")
@@ -109,4 +123,5 @@ else:
             )
         ]
     ))
+
 
