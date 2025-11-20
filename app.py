@@ -14,7 +14,7 @@ st.set_page_config(page_title="Powerhaven Boreholes Dashboard", layout="wide")
 # -------------------------
 # Load Data
 # -------------------------
-@st.cache_data
+
 def load_data():
     # Load tables
     bore_df = pd.DataFrame(supabase.table("boreholes").select("*").execute().data)
@@ -88,4 +88,5 @@ if not map_df.empty:
     st.map(map_df[["latitude", "longitude"]])
 else:
     st.info("No location data available for this client to display on the map.")
+
 
