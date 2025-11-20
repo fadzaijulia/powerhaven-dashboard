@@ -18,11 +18,11 @@ st.set_page_config(page_title="Powerhaven Boreholes Dashboard", layout="wide")
 @st.cache_data
 def load_data():
     bore_df = pd.DataFrame(supabase.table("boreholes").select("*").execute().data)
-    clients_df = pd.DataFrame(supabase.table("clients").select("*").execute().data)
     survey_df = pd.DataFrame(supabase.table("survey_points").select("*").execute().data)
+    clients_df = pd.DataFrame(supabase.table("clients").select("*").execute().data)
 
     # Convert client_id to string
-    for df in [bore_df, clients_df, survey_df]:
+    for df in [bore_df, survey_df, clients_df]:
         if "client_id" in df.columns:
             df["client_id"] = df["client_id"].astype(str)
 
@@ -30,14 +30,11 @@ def load_data():
     bore_df = clients_df.merge(bore_df, on="client_id", how="left")
     survey_df = clients_df.merge(survey_df, on="client_id", how="left")
 
-    # Ensure numeric columns
-    if "latitude" in bore_df.columns and "longitude" in bore_df.columns:
-        bore_df["latitude"] = pd.to_numeric(bore_df["latitude"], errors="coerce")
-        bore_df["longitude"] = pd.to_numeric(bore_df["longitude"], errors="coerce")
-
-    if "latitude_survey_points" in survey_df.columns and "longitude_survey_points" in survey_df.columns:
-        survey_df["latitude_survey_points"] = pd.to_numeric(survey_df["latitude_survey_points"], errors="coerce")
-        survey_df["longitude_survey_points"] = pd.to_numeric(survey_df["longitude_survey_points"], errors="coerce")
+    # Ensure numeric
+    bore_df["latitude"] = pd.to_numeric(bore_df.get("latitude"), errors="coerce")
+    bore_df["longitude"] = pd.to_numeric(bore_df.get("longitude"), errors="coerce")
+    survey_df["latitude_survey_points"] = pd.to_numeric(survey_df.get("latitude_survey_points"), errors="coerce")
+    survey_df["longitude_survey_points"] = pd.to_numeric(survey_df.get("longitude_survey_points"), errors="coerce")
 
     return bore_df, survey_df, clients_df
 
@@ -80,7 +77,7 @@ survey_filtered["color"] = survey_filtered.apply(lambda x: [0,200,0], axis=1)  #
 # Combine
 map_df = pd.concat([bore_filtered, survey_filtered], ignore_index=True)
 
-# Highlight overlapping points (same lat/lon)
+# Highlight overlapping points
 overlap = pd.merge(
     bore_filtered[["lat","lon"]],
     survey_filtered[["lat","lon"]],
