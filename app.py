@@ -68,14 +68,14 @@ bore_filtered = bore_filtered.copy()
 bore_filtered["type"] = "Borehole"
 bore_filtered["lat"] = bore_filtered["latitude"]
 bore_filtered["lon"] = bore_filtered["longitude"]
-bore_filtered["color"] = [[200,0,0] for _ in range(len(bore_filtered))]  # Red
+bore_filtered["color"] = bore_filtered.apply(lambda x: [200,0,0], axis=1)  # Red
 
 # Survey points
 survey_filtered = survey_filtered.copy()
 survey_filtered["type"] = "Survey"
 survey_filtered["lat"] = survey_filtered["latitude_survey_points"]
 survey_filtered["lon"] = survey_filtered["longitude_survey_points"]
-survey_filtered["color"] = [[0,200,0] for _ in range(len(survey_filtered))]  # Green
+survey_filtered["color"] = survey_filtered.apply(lambda x: [0,200,0], axis=1)  # Green
 
 # Combine
 map_df = pd.concat([bore_filtered, survey_filtered], ignore_index=True)
@@ -88,7 +88,8 @@ overlap = pd.merge(
 )
 if not overlap.empty:
     for idx, row in overlap.iterrows():
-        map_df.loc[(map_df["lat"]==row["lat"]) & (map_df["lon"]==row["lon"]), "color"] = [0,0,200]  # Blue
+        indices = map_df[(map_df["lat"]==row["lat"]) & (map_df["lon"]==row["lon"])].index
+        map_df.loc[indices, "color"] = [0,0,200]  # Blue
 
 # -------------------------
 # PyDeck Map
@@ -111,7 +112,7 @@ if not map_df.empty:
     }
 
     st.pydeck_chart(pdk.Deck(
-        map_style='mapbox://styles/mapbox/light-v9',  # Streamlit allows free use of Mapbox style
+        map_style='mapbox://styles/mapbox/light-v9',
         initial_view_state=pdk.ViewState(
             latitude=map_df["lat"].mean(),
             longitude=map_df["lon"].mean(),
