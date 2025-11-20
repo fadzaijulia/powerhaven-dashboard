@@ -21,24 +21,25 @@ def load_data():
     clients_df = pd.DataFrame(supabase.table("clients").select("*").execute().data)
     survey_df = pd.DataFrame(supabase.table("survey_points").select("*").execute().data)
 
-    # Ensure client_id is string
+    # Convert client_id to string
     for df in [bore_df, clients_df, survey_df]:
         if "client_id" in df.columns:
             df["client_id"] = df["client_id"].astype(str)
 
-    # Merge boreholes with clients
-    merged_bore = clients_df.merge(bore_df, on="client_id", how="left")
-    merged_survey = clients_df.merge(survey_df, on="client_id", how="left")
+    # Merge with clients
+    bore_df = clients_df.merge(bore_df, on="client_id", how="left")
+    survey_df = clients_df.merge(survey_df, on="client_id", how="left")
 
-    # Ensure numeric
-    for df, lat_col, lon_col in [
-        (merged_bore, "latitude", "longitude"),
-        (merged_survey, "latitude", "longitude")
-    ]:
-        df[lat_col] = pd.to_numeric(df[lat_col], errors="coerce")
-        df[lon_col] = pd.to_numeric(df[lon_col], errors="coerce")
+    # Ensure numeric columns
+    if "latitude" in bore_df.columns and "longitude" in bore_df.columns:
+        bore_df["latitude"] = pd.to_numeric(bore_df["latitude"], errors="coerce")
+        bore_df["longitude"] = pd.to_numeric(bore_df["longitude"], errors="coerce")
 
-    return merged_bore, merged_survey, clients_df
+    if "latitude_survey_points" in survey_df.columns and "longitude_survey_points" in survey_df.columns:
+        survey_df["latitude_survey_points"] = pd.to_numeric(survey_df["latitude_survey_points"], errors="coerce")
+        survey_df["longitude_survey_points"] = pd.to_numeric(survey_df["longitude_survey_points"], errors="coerce")
+
+    return bore_df, survey_df, clients_df
 
 # -------------------------
 # Load Data
@@ -54,7 +55,7 @@ client_options = clients_df["client_name"].dropna().unique().tolist()
 selected_client = st.selectbox("Select Client", options=client_options)
 
 bore_filtered = bore_df[bore_df["client_name"] == selected_client].dropna(subset=["latitude","longitude"])
-survey_filtered = survey_df[survey_df["client_name"] == selected_client].dropna(subset=["latitude","longitude"])
+survey_filtered = survey_df[survey_df["client_name"] == selected_client].dropna(subset=["latitude_survey_points","longitude_survey_points"])
 
 st.subheader(f"📊 Data for {selected_client}")
 st.dataframe(pd.concat([bore_filtered, survey_filtered], ignore_index=True, sort=False))
@@ -62,40 +63,42 @@ st.dataframe(pd.concat([bore_filtered, survey_filtered], ignore_index=True, sort
 # -------------------------
 # Prepare Map Data
 # -------------------------
-# Add a type column for coloring
+# Boreholes
 bore_filtered = bore_filtered.copy()
 bore_filtered["type"] = "Borehole"
+bore_filtered["lat"] = bore_filtered["latitude"]
+bore_filtered["lon"] = bore_filtered["longitude"]
+bore_filtered["color"] = [200,0,0]  # Red
 
+# Survey points
 survey_filtered = survey_filtered.copy()
 survey_filtered["type"] = "Survey"
+survey_filtered["lat"] = survey_filtered["latitude_survey_points"]
+survey_filtered["lon"] = survey_filtered["longitude_survey_points"]
+survey_filtered["color"] = [0,200,0]  # Green
 
-# Merge bore and survey to find overlaps
-merged = pd.concat([bore_filtered, survey_filtered], ignore_index=True)
-merged["color"] = merged.apply(
-    lambda row: [0, 200, 0] if row["type"]=="Survey" else [200, 0, 0], axis=1
-)
+# Combine
+map_df = pd.concat([bore_filtered, survey_filtered], ignore_index=True)
 
 # Highlight overlapping points (same lat/lon)
 overlap = pd.merge(
-    bore_filtered[["latitude","longitude"]],
-    survey_filtered[["latitude","longitude"]],
-    on=["latitude","longitude"]
+    bore_filtered[["lat","lon"]],
+    survey_filtered[["lat","lon"]],
+    on=["lat","lon"]
 )
 if not overlap.empty:
-    merged.loc[
-        merged.apply(lambda row: ((row["latitude"],row["longitude"]) in list(zip(overlap["latitude"],overlap["longitude"]))), axis=1),
-        "color"
-    ] = [0,0,200]  # Blue for overlapping points
+    for idx, row in overlap.iterrows():
+        map_df.loc[(map_df["lat"]==row["lat"]) & (map_df["lon"]==row["lon"]), "color"] = [0,0,200]  # Blue
 
 # -------------------------
 # PyDeck Map
 # -------------------------
-if not merged.empty:
+if not map_df.empty:
     st.subheader(f"📍 Borehole & Survey Locations for {selected_client}")
     layer = pdk.Layer(
         "ScatterplotLayer",
-        data=merged,
-        get_position='[longitude, latitude]',
+        data=map_df,
+        get_position='[lon, lat]',
         get_fill_color='color',
         get_radius=50,
         pickable=True,
@@ -103,15 +106,15 @@ if not merged.empty:
     )
 
     tooltip = {
-        "html": "<b>Type:</b> {type} <br/> <b>Lat:</b> {latitude} <br/> <b>Lon:</b> {longitude}",
+        "html": "<b>Type:</b> {type} <br/> <b>Lat:</b> {lat} <br/> <b>Lon:</b> {lon}",
         "style": {"color": "white"}
     }
 
     st.pydeck_chart(pdk.Deck(
         map_style='mapbox://styles/mapbox/light-v9',
         initial_view_state=pdk.ViewState(
-            latitude=merged["latitude"].mean(),
-            longitude=merged["longitude"].mean(),
+            latitude=map_df["lat"].mean(),
+            longitude=map_df["lon"].mean(),
             zoom=12,
             pitch=0,
         ),
