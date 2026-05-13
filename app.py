@@ -5,8 +5,8 @@ from supabase import create_client, Client
 # -------------------------
 # Supabase connection
 # -------------------------
-url = "https://mhcsryyqvhyntzrbdyuc.supabase.co"
-key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1oY3NyeXlxdmh5bnR6cmJkeXVjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE4MDM1NTcsImV4cCI6MjA3NzM3OTU1N30.7aa5wtN-1XQbVsOchmsSyRe2CcpYDzPyBMPG59zsrOI"
+url = "https://ewybimordizxtbxtughj.supabase.co/rest/v1/"
+key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3eWJpbW9yZGl6eHRieHR1Z2hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NjcwNzYsImV4cCI6MjA5MzU0MzA3Nn0.FBETeNXLGcp_0H3-lX2PTXJurbJENyAGQG12GuxTab0"
 supabase: Client = create_client(url, key)
 
 st.set_page_config(page_title="Powerhaven Boreholes Dashboard", layout="wide")
