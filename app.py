@@ -127,7 +127,6 @@ for _, row in filtered_df.iterrows():
         ).add_to(m)
 
 st_folium(m, width=1200, height=600)
-```
 
 # 4. Run the Application
 
