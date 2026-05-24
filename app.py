@@ -1,43 +1,66 @@
-import streamlit as st
-import pandas as pd
-from supabase import create_client
+import os
+
 import folium
-from streamlit_folium import st_folium
+import pandas as pd
 import plotly.express as px
+import streamlit as st
+from streamlit_folium import st_folium
+from supabase import create_client
+
 
 st.set_page_config(page_title="Borehole Dashboard", layout="wide")
 
 st.title("Borehole Drilling Dashboard")
 
-# =====================================================
-# SUPABASE CONNECTION
-# =====================================================
 
-SUPABASE_URL = "https://ewybimordizxtbxtughj.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3eWJpbW9yZGl6eHRieHR1Z2hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NjcwNzYsImV4cCI6MjA5MzU0MzA3Nn0.FBETeNXLGcp_0H3-lX2PTXJurbJENyAGQG12GuxTab0"
+def get_secret(name: str, default: str | None = None) -> str | None:
+    """Read a value from Streamlit secrets first, then environment variables."""
+    try:
+        return st.secrets[name]
+    except (KeyError, FileNotFoundError):
+        return os.getenv(name, default)
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# =====================================================
-# LOAD DATA
-# =====================================================
+@st.cache_data(ttl=300)
+def load_boreholes() -> pd.DataFrame:
+    supabase_url = get_secret("https://ewybimordizxtbxtughj.supabase.co")
+    supabase_key = get_secret("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3eWJpbW9yZGl6eHRieHR1Z2hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NjcwNzYsImV4cCI6MjA5MzU0MzA3Nn0.FBETeNXLGcp_0H3-lX2PTXJurbJENyAGQG12GuxTab0")
 
-response = supabase.table("boreholes").select("*").execute()
+    if not supabase_url or not supabase_key:
+        st.error(
+            "Missing Supabase configuration. Add SUPABASE_URL and SUPABASE_KEY "
+            "to .streamlit/secrets.toml or set them as environment variables."
+        )
+        st.stop()
 
-df = pd.DataFrame(response.data)
+    client = create_client(supabase_url, supabase_key)
+    response = client.table("boreholes").select("*").execute()
+    return pd.DataFrame(response.data)
 
-# =====================================================
-# SEARCH FILTERS
-# =====================================================
+
+df = load_boreholes()
+
+required_columns = {
+    "borehole_name",
+    "district",
+    "village",
+    "yield_lph",
+    "drilling_status",
+    "latitude",
+    "longitude",
+}
+
+missing_columns = sorted(required_columns.difference(df.columns))
+if missing_columns:
+    st.error(f"Missing expected database columns: {', '.join(missing_columns)}")
+    st.stop()
 
 st.sidebar.header("Search Boreholes")
 
 search_name = st.sidebar.text_input("Search Borehole Name")
 
-search_district = st.sidebar.selectbox(
-    "Select District",
-    ["All"] + sorted(df["district"].dropna().unique().tolist())
-)
+districts = sorted(df["district"].dropna().unique().tolist())
+search_district = st.sidebar.selectbox("Select District", ["All"] + districts)
 
 filtered_df = df.copy()
 
@@ -47,20 +70,14 @@ if search_name:
     ]
 
 if search_district != "All":
-    filtered_df = filtered_df[
-        filtered_df["district"] == search_district
-    ]
-
-# =====================================================
-# DASHBOARD METRICS
-# =====================================================
+    filtered_df = filtered_df[filtered_df["district"] == search_district]
 
 successful = len(filtered_df[filtered_df["drilling_status"] == "Successful"])
 failed = len(filtered_df[filtered_df["drilling_status"] == "Failed"])
 total = len(filtered_df)
 
-success_rate = round((successful / total) * 100, 2) if total > 0 else 0
-failure_rate = round((failed / total) * 100, 2) if total > 0 else 0
+success_rate = round((successful / total) * 100, 2) if total else 0
+failure_rate = round((failed / total) * 100, 2) if total else 0
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -70,47 +87,40 @@ col3.metric("Failed", failed)
 col4.metric("Success Rate", f"{success_rate}%")
 col5.metric("Failure Rate", f"{failure_rate}%")
 
-# =====================================================
-# PIE CHART
-# =====================================================
-
-chart_df = pd.DataFrame({
-    "Status": ["Successful", "Failed"],
-    "Count": [successful, failed]
-})
+chart_df = pd.DataFrame(
+    {
+        "Status": ["Successful", "Failed"],
+        "Count": [successful, failed],
+    }
+)
 
 fig = px.pie(
     chart_df,
     values="Count",
     names="Status",
-    title="Borehole Success vs Failure"
+    title="Borehole Success vs Failure",
+    color="Status",
+    color_discrete_map={"Successful": "#2e7d32", "Failed": "#c62828"},
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
-# =====================================================
-# DATA TABLE
-# =====================================================
-
 st.subheader("Borehole Records")
-st.dataframe(filtered_df)
-
-# =====================================================
-# LEAFLET MAP
-# =====================================================
+st.dataframe(filtered_df, use_container_width=True)
 
 st.subheader("Borehole Locations")
 
-m = folium.Map(location=[-17.8252, 31.0335], zoom_start=7)
+map_df = filtered_df.dropna(subset=["latitude", "longitude"])
 
-for _, row in filtered_df.iterrows():
+if map_df.empty:
+    st.info("No boreholes with latitude and longitude are available for this filter.")
+else:
+    center_lat = map_df["latitude"].astype(float).mean()
+    center_lon = map_df["longitude"].astype(float).mean()
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=7)
 
-    if pd.notnull(row["latitude"]) and pd.notnull(row["longitude"]):
-
-        marker_color = "green"
-
-        if row["drilling_status"] == "Failed":
-            marker_color = "red"
+    for _, row in map_df.iterrows():
+        marker_color = "red" if row["drilling_status"] == "Failed" else "green"
 
         popup = f"""
         <b>Borehole:</b> {row['borehole_name']}<br>
@@ -121,155 +131,148 @@ for _, row in filtered_df.iterrows():
         """
 
         folium.Marker(
-            location=[row["latitude"], row["longitude"]],
+            location=[float(row["latitude"]), float(row["longitude"])],
             popup=popup,
-            icon=folium.Icon(color=marker_color)
+            icon=folium.Icon(color=marker_color),
         ).add_to(m)
 
-st_folium(m, width=1200, height=600)
+    st_folium(m, width=None, height=600)
+import os
 
-# 4. Run the Application
+import folium
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+from streamlit_folium import st_folium
+from supabase import create_client
 
-Open terminal in the project folder:
 
-```bash
-streamlit run app.py
-```
+st.set_page_config(page_title="Borehole Dashboard", layout="wide")
 
-The app will open in your browser automatically.
+st.title("Borehole Drilling Dashboard")
 
----
 
-# 5. Connecting Supabase
+def get_secret(name: str, default: str | None = None) -> str | None:
+    """Read a value from Streamlit secrets first, then environment variables."""
+    try:
+        return st.secrets[name]
+    except (KeyError, FileNotFoundError):
+        return os.getenv(name, default)
 
-In Supabase:
 
-1. Open your project.
-2. Go to:
+@st.cache_data(ttl=300)
+def load_boreholes() -> pd.DataFrame:
+    supabase_url = get_secret("SUPABASE_URL")
+    supabase_key = get_secret("SUPABASE_KEY")
 
-   * Settings
-   * Database
-3. Copy:
+    if not supabase_url or not supabase_key:
+        st.error(
+            "Missing Supabase configuration. Add SUPABASE_URL and SUPABASE_KEY "
+            "to .streamlit/secrets.toml or set them as environment variables."
+        )
+        st.stop()
 
-   * Host
-   * Database name
-   * Password
-   * Port
+    client = create_client(supabase_url, supabase_key)
+    response = client.table("boreholes").select("*").execute()
+    return pd.DataFrame(response.data)
 
-Replace these values in the code:
 
-```python
-DB_HOST = "YOUR_HOST"
-DB_NAME = "postgres"
-DB_USER = "postgres"
-DB_PASSWORD = "YOUR_PASSWORD"
-DB_PORT = "5432"
-```
+df = load_boreholes()
 
----
+required_columns = {
+    "borehole_name",
+    "district",
+    "village",
+    "yield_lph",
+    "drilling_status",
+    "latitude",
+    "longitude",
+}
 
-# 6. Features of the System
+missing_columns = sorted(required_columns.difference(df.columns))
+if missing_columns:
+    st.error(f"Missing expected database columns: {', '.join(missing_columns)}")
+    st.stop()
 
-## Search Functionality
+st.sidebar.header("Search Boreholes")
 
-Users can:
+search_name = st.sidebar.text_input("Search Borehole Name")
 
-* Search boreholes by name.
-* Filter boreholes by district.
+districts = sorted(df["district"].dropna().unique().tolist())
+search_district = st.sidebar.selectbox("Select District", ["All"] + districts)
 
----
+filtered_df = df.copy()
 
-## Dashboard Analytics
+if search_name:
+    filtered_df = filtered_df[
+        filtered_df["borehole_name"].str.contains(search_name, case=False, na=False)
+    ]
 
-The dashboard automatically calculates:
+if search_district != "All":
+    filtered_df = filtered_df[filtered_df["district"] == search_district]
 
-* Total boreholes drilled
-* Successful boreholes
-* Failed boreholes
-* Success percentage
-* Failure percentage
+successful = len(filtered_df[filtered_df["drilling_status"] == "Successful"])
+failed = len(filtered_df[filtered_df["drilling_status"] == "Failed"])
+total = len(filtered_df)
 
----
+success_rate = round((successful / total) * 100, 2) if total else 0
+failure_rate = round((failed / total) * 100, 2) if total else 0
 
-## Interactive Leaflet Map
+col1, col2, col3, col4, col5 = st.columns(5)
 
-The map:
+col1.metric("Total", total)
+col2.metric("Successful", successful)
+col3.metric("Failed", failed)
+col4.metric("Success Rate", f"{success_rate}%")
+col5.metric("Failure Rate", f"{failure_rate}%")
 
-* Displays all borehole locations.
-* Uses coordinates from the database.
-* Shows popups with borehole information.
-* Uses:
+chart_df = pd.DataFrame(
+    {
+        "Status": ["Successful", "Failed"],
+        "Count": [successful, failed],
+    }
+)
 
-  * Green markers = successful boreholes
-  * Red markers = failed boreholes
+fig = px.pie(
+    chart_df,
+    values="Count",
+    names="Status",
+    title="Borehole Success vs Failure",
+    color="Status",
+    color_discrete_map={"Successful": "#2e7d32", "Failed": "#c62828"},
+)
 
----
+st.plotly_chart(fig, use_container_width=True)
 
-# 7. Suggested Improvements
+st.subheader("Borehole Records")
+st.dataframe(filtered_df, use_container_width=True)
 
-You can later add:
+st.subheader("Borehole Locations")
 
-* User login system
-* Admin dashboard
-* Upload CSV functionality
-* PDF report generation
-* Satellite basemap layers
-* Spatial analysis
-* Heatmaps
-* Borehole clustering
-* Water quality analysis
-* Mobile responsiveness
-* Real-time database updates
+map_df = filtered_df.dropna(subset=["latitude", "longitude"])
 
----
+if map_df.empty:
+    st.info("No boreholes with latitude and longitude are available for this filter.")
+else:
+    center_lat = map_df["latitude"].astype(float).mean()
+    center_lon = map_df["longitude"].astype(float).mean()
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=7)
 
-# 8. Recommended Folder Structure
+    for _, row in map_df.iterrows():
+        marker_color = "red" if row["drilling_status"] == "Failed" else "green"
 
-```text
-borehole_dashboard/
+        popup = f"""
+        <b>Borehole:</b> {row['borehole_name']}<br>
+        <b>District:</b> {row['district']}<br>
+        <b>Village:</b> {row['village']}<br>
+        <b>Yield:</b> {row['yield_lph']} LPH<br>
+        <b>Status:</b> {row['drilling_status']}
+        """
 
- app.py
- requirements.txt
- assets/
- data/
- README.md
-```
+        folium.Marker(
+            location=[float(row["latitude"]), float(row["longitude"])],
+            popup=popup,
+            icon=folium.Icon(color=marker_color),
+        ).add_to(m)
 
----
-
-# 9. requirements.txt
-
-Create a file called:
-
-```text
-requirements.txt
-```
-
-Add:
-
-```text
-streamlit
-pandas
-psycopg2-binary
-sqlalchemy
-folium
-streamlit-folium
-plotly
-```
-
----
-
-# 10. Example Future GIS Expansion
-
-You can later integrate:
-
-* PostGIS
-* GeoServer
-* QGIS Server
-* ArcGIS Online
-* Remote sensing layers
-* Borehole suitability models
-* Groundwater interpolation
-* Aquifer analysis
-
-This can evolve into a complete Web GIS groundwater management system.
+    st_folium(m, width=None, height=600)
