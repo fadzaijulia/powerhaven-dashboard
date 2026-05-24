@@ -63,7 +63,7 @@ Example values for `drilling_status`:
 
 ---
 
-# 3. Streamlit Web Application Code (Supabase Version)
+# Clean app.py Code
 
 Create a file called:
 
@@ -71,24 +71,17 @@ Create a file called:
 app.py
 ```
 
-Paste the following code:
+Paste ONLY this code into the file:
 
 ```python
 import streamlit as st
 import pandas as pd
-from supabase import create_client, Client
+from supabase import create_client
 import folium
 from streamlit_folium import st_folium
 import plotly.express as px
 
-# =====================================================
-# PAGE CONFIGURATION
-# =====================================================
-
-st.set_page_config(
-    page_title="Borehole Dashboard",
-    layout="wide"
-)
+st.set_page_config(page_title="Borehole Dashboard", layout="wide")
 
 st.title("Borehole Drilling Dashboard")
 
@@ -99,67 +92,55 @@ st.title("Borehole Drilling Dashboard")
 SUPABASE_URL = "https://ewybimordizxtbxtughj.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3eWJpbW9yZGl6eHRieHR1Z2hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NjcwNzYsImV4cCI6MjA5MzU0MzA3Nn0.FBETeNXLGcp_0H3-lX2PTXJurbJENyAGQG12GuxTab0"
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =====================================================
-# LOAD DATA FROM SUPABASE
+# LOAD DATA
 # =====================================================
 
 response = supabase.table("boreholes").select("*").execute()
 
-# Convert to DataFrame
-
 df = pd.DataFrame(response.data)
 
 # =====================================================
-# SIDEBAR SEARCH
+# SEARCH FILTERS
 # =====================================================
 
 st.sidebar.header("Search Boreholes")
 
-search_name = st.sidebar.text_input("Search by Borehole Name")
+search_name = st.sidebar.text_input("Search Borehole Name")
 
 search_district = st.sidebar.selectbox(
     "Select District",
-    ["All"] + sorted(df['district'].dropna().unique().tolist())
+    ["All"] + sorted(df["district"].dropna().unique().tolist())
 )
 
 filtered_df = df.copy()
 
 if search_name:
     filtered_df = filtered_df[
-        filtered_df['borehole_name'].str.contains(search_name, case=False, na=False)
+        filtered_df["borehole_name"].str.contains(search_name, case=False, na=False)
     ]
 
 if search_district != "All":
     filtered_df = filtered_df[
-        filtered_df['district'] == search_district
+        filtered_df["district"] == search_district
     ]
 
 # =====================================================
 # DASHBOARD METRICS
 # =====================================================
 
-successful = len(filtered_df[
-    filtered_df['drilling_status'] == 'Successful'
-])
-
-failed = len(filtered_df[
-    filtered_df['drilling_status'] == 'Failed'
-])
-
+successful = len(filtered_df[filtered_df["drilling_status"] == "Successful"])
+failed = len(filtered_df[filtered_df["drilling_status"] == "Failed"])
 total = len(filtered_df)
 
-if total > 0:
-    success_rate = round((successful / total) * 100, 2)
-    failure_rate = round((failed / total) * 100, 2)
-else:
-    success_rate = 0
-    failure_rate = 0
+success_rate = round((successful / total) * 100, 2) if total > 0 else 0
+failure_rate = round((failed / total) * 100, 2) if total > 0 else 0
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
-col1.metric("Total Boreholes", total)
+col1.metric("Total", total)
 col2.metric("Successful", successful)
 col3.metric("Failed", failed)
 col4.metric("Success Rate", f"{success_rate}%")
@@ -170,25 +151,24 @@ col5.metric("Failure Rate", f"{failure_rate}%")
 # =====================================================
 
 chart_df = pd.DataFrame({
-    'Status': ['Successful', 'Failed'],
-    'Count': [successful, failed]
+    "Status": ["Successful", "Failed"],
+    "Count": [successful, failed]
 })
 
 fig = px.pie(
     chart_df,
-    values='Count',
-    names='Status',
-    title='Borehole Success vs Failure'
+    values="Count",
+    names="Status",
+    title="Borehole Success vs Failure"
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
 # =====================================================
-# DISPLAY TABLE
+# DATA TABLE
 # =====================================================
 
 st.subheader("Borehole Records")
-
 st.dataframe(filtered_df)
 
 # =====================================================
@@ -197,20 +177,18 @@ st.dataframe(filtered_df)
 
 st.subheader("Borehole Locations")
 
-map_center = [-17.8252, 31.0335]
-
-m = folium.Map(location=map_center, zoom_start=7)
+m = folium.Map(location=[-17.8252, 31.0335], zoom_start=7)
 
 for _, row in filtered_df.iterrows():
 
-    if pd.notnull(row['latitude']) and pd.notnull(row['longitude']):
+    if pd.notnull(row["latitude"]) and pd.notnull(row["longitude"]):
 
-        color = 'green'
+        marker_color = "green"
 
-        if row['drilling_status'] == 'Failed':
-            color = 'red'
+        if row["drilling_status"] == "Failed":
+            marker_color = "red"
 
-        popup_text = f"""
+        popup = f"""
         <b>Borehole:</b> {row['borehole_name']}<br>
         <b>District:</b> {row['district']}<br>
         <b>Village:</b> {row['village']}<br>
@@ -219,28 +197,13 @@ for _, row in filtered_df.iterrows():
         """
 
         folium.Marker(
-            location=[row['latitude'], row['longitude']],
-            popup=popup_text,
-            icon=folium.Icon(color=color)
+            location=[row["latitude"], row["longitude"]],
+            popup=popup,
+            icon=folium.Icon(color=marker_color)
         ).add_to(m)
 
 st_folium(m, width=1200, height=600)
-
-# =====================================================
-# DOWNLOAD CSV
-# =====================================================
-
-csv = filtered_df.to_csv(index=False).encode('utf-8')
-
-st.download_button(
-    label="Download Filtered Data",
-    data=csv,
-    file_name='boreholes.csv',
-    mime='text/csv'
-)
 ```
-
----
 
 # 4. Run the Application
 
@@ -341,12 +304,12 @@ You can later add:
 
 ```text
 borehole_dashboard/
-
- app.py
- requirements.txt
- assets/
- data/
- README.md
+│
+├── app.py
+├── requirements.txt
+├── assets/
+├── data/
+└── README.md
 ```
 
 ---
