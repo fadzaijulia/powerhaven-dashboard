@@ -1,92 +1,389 @@
+# Borehole Web GIS Dashboard Application
+
+## Overview
+
+This application:
+
+1. Connects to a PostgreSQL/Supabase database.
+2. Searches borehole records from the database.
+3. Displays borehole information on a web application.
+4. Shows dashboard statistics:
+
+   * Total boreholes
+   * Successful boreholes
+   * Failed boreholes
+   * Success rate
+   * Failure rate
+5. Displays all boreholes on an interactive Leaflet map.
+6. Uses coordinates stored in the database.
+
+The application uses:
+
+* Python
+* Streamlit
+* Supabase/PostgreSQL
+* Pandas
+* Folium (Leaflet maps)
+* Plotly
+
+---
+
+# 1. Install Required Packages
+
+Open terminal or command prompt:
+
+```bash
+pip install streamlit pandas psycopg2-binary sqlalchemy folium streamlit-folium plotly
+```
+
+---
+
+# 2. Example Database Table
+
+Example table: `boreholes`
+
+```sql
+CREATE TABLE boreholes (
+    borehole_id SERIAL PRIMARY KEY,
+    borehole_name VARCHAR(100),
+    district VARCHAR(100),
+    village VARCHAR(100),
+    yield_lph FLOAT,
+    drilling_status VARCHAR(50),
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    drilling_date DATE
+);
+```
+
+Example values for `drilling_status`:
+
+* Successful
+* Failed
+
+---
+
+# 3. Streamlit Web Application Code (Supabase Version)
+
+Create a file called:
+
+```text
+app.py
+```
+
+Paste the following code:
+
+```python
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
+import folium
+from streamlit_folium import st_folium
+import plotly.express as px
 
-# -------------------------
-# Supabase connection
-# -------------------------
-url = "https://ewybimordizxtbxtughj.supabase.co"
-key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3eWJpbW9yZGl6eHRieHR1Z2hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NjcwNzYsImV4cCI6MjA5MzU0MzA3Nn0.FBETeNXLGcp_0H3-lX2PTXJurbJENyAGQG12GuxTab0"
-supabase: Client = create_client(url, key)
+# =====================================================
+# PAGE CONFIGURATION
+# =====================================================
 
-st.set_page_config(page_title="Powerhaven Boreholes Dashboard", layout="wide")
+st.set_page_config(
+    page_title="Borehole Dashboard",
+    layout="wide"
+)
 
-# -------------------------
-# Load Data
-# -------------------------
+st.title("Borehole Drilling Dashboard")
 
-def load_data():
-    # Load tables
-    bore_df = pd.DataFrame(supabase.table("boreholes").select("*").execute().data)
-    clients_df = pd.DataFrame(supabase.table("clients").select("*").execute().data)
-    survey_df = pd.DataFrame(supabase.table("survey_points").select("*").execute().data)
-    siting_df = pd.DataFrame(supabase.table("siting_reports").select("*").execute().data)
-    drilling_df = pd.DataFrame(supabase.table("drilling_reports").select("*").execute().data)
+# =====================================================
+# SUPABASE CONNECTION
+# =====================================================
 
-    # Convert client_id to string for merging
-    for df in [bore_df, clients_df, survey_df, siting_df, drilling_df]:
-        if "client_id" in df.columns:
-            df["client_id"] = df["client_id"].astype(str)
+SUPABASE_URL = "https://ewybimordizxtbxtughj.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3eWJpbW9yZGl6eHRieHR1Z2hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NjcwNzYsImV4cCI6MjA5MzU0MzA3Nn0.FBETeNXLGcp_0H3-lX2PTXJurbJENyAGQG12GuxTab0"
 
-    # Start merge with clients
-    merged_df = clients_df.copy()
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    if "client_id" in bore_df.columns:
-        merged_df = merged_df.merge(bore_df, on="client_id", how="left", suffixes=("", "_bore"))
-    if "client_id" in survey_df.columns:
-        merged_df = merged_df.merge(survey_df, on="client_id", how="left", suffixes=("", "_survey"))
-    if "client_id" in siting_df.columns:
-        merged_df = merged_df.merge(siting_df, on="client_id", how="left", suffixes=("", "_siting"))
-    if "client_id" in drilling_df.columns:
-        merged_df = merged_df.merge(drilling_df, on="client_id", how="left", suffixes=("", "_drill"))
+# =====================================================
+# LOAD DATA FROM SUPABASE
+# =====================================================
 
-    # -------------------------
-    # Use actual latitude/longitude columns (new ones in Supabase)
-    # -------------------------
-    # Borehole
-    if "latitude" in merged_df.columns and "longitude" in merged_df.columns:
-        merged_df["latitude"] = pd.to_numeric(merged_df["latitude"], errors="coerce")
-        merged_df["longitude"] = pd.to_numeric(merged_df["longitude"], errors="coerce")
+response = supabase.table("boreholes").select("*").execute()
 
-    # Survey points
-    if "latitude_survey_points" in merged_df.columns and "longitude_survey_points" in merged_df.columns:
-        merged_df["latitude"] = merged_df["latitude"].combine_first(merged_df["latitude_survey_points"])
-        merged_df["longitude"] = merged_df["longitude"].combine_first(merged_df["longitude_survey_points"])
+# Convert to DataFrame
 
-    return merged_df
+df = pd.DataFrame(response.data)
 
-# -------------------------
-# Load Data
-# -------------------------
-st.title("💧 Powerhaven Boreholes & Solar Dashboard")
+# =====================================================
+# SIDEBAR SEARCH
+# =====================================================
 
-with st.spinner("Loading data from Supabase..."):
-    df = load_data()
+st.sidebar.header("Search Boreholes")
 
-if df.empty:
-    st.error("No data loaded.")
-    st.stop()
+search_name = st.sidebar.text_input("Search by Borehole Name")
 
-# -------------------------
-# Client Filter
-# -------------------------
-client_options = df["client_name"].dropna().unique().tolist()
-selected_client = st.selectbox("Select Client", options=client_options)
+search_district = st.sidebar.selectbox(
+    "Select District",
+    ["All"] + sorted(df['district'].dropna().unique().tolist())
+)
 
-filtered_df = df[df["client_name"] == selected_client]
+filtered_df = df.copy()
 
-st.subheader(f"📊 Data for {selected_client}")
+if search_name:
+    filtered_df = filtered_df[
+        filtered_df['borehole_name'].str.contains(search_name, case=False, na=False)
+    ]
+
+if search_district != "All":
+    filtered_df = filtered_df[
+        filtered_df['district'] == search_district
+    ]
+
+# =====================================================
+# DASHBOARD METRICS
+# =====================================================
+
+successful = len(filtered_df[
+    filtered_df['drilling_status'] == 'Successful'
+])
+
+failed = len(filtered_df[
+    filtered_df['drilling_status'] == 'Failed'
+])
+
+total = len(filtered_df)
+
+if total > 0:
+    success_rate = round((successful / total) * 100, 2)
+    failure_rate = round((failed / total) * 100, 2)
+else:
+    success_rate = 0
+    failure_rate = 0
+
+col1, col2, col3, col4, col5 = st.columns(5)
+
+col1.metric("Total Boreholes", total)
+col2.metric("Successful", successful)
+col3.metric("Failed", failed)
+col4.metric("Success Rate", f"{success_rate}%")
+col5.metric("Failure Rate", f"{failure_rate}%")
+
+# =====================================================
+# PIE CHART
+# =====================================================
+
+chart_df = pd.DataFrame({
+    'Status': ['Successful', 'Failed'],
+    'Count': [successful, failed]
+})
+
+fig = px.pie(
+    chart_df,
+    values='Count',
+    names='Status',
+    title='Borehole Success vs Failure'
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+# =====================================================
+# DISPLAY TABLE
+# =====================================================
+
+st.subheader("Borehole Records")
+
 st.dataframe(filtered_df)
 
-# -------------------------
-# Map Section (FREE: st.map)
-# -------------------------
-map_df = filtered_df.dropna(subset=["latitude", "longitude"])
+# =====================================================
+# LEAFLET MAP
+# =====================================================
 
-if not map_df.empty:
-    st.subheader(f"📍 Borehole / Survey Locations for {selected_client}")
-    st.map(map_df[["latitude", "longitude"]])
-else:
-    st.info("No location data available for this client to display on the map.")
+st.subheader("Borehole Locations")
 
+map_center = [-17.8252, 31.0335]
 
+m = folium.Map(location=map_center, zoom_start=7)
+
+for _, row in filtered_df.iterrows():
+
+    if pd.notnull(row['latitude']) and pd.notnull(row['longitude']):
+
+        color = 'green'
+
+        if row['drilling_status'] == 'Failed':
+            color = 'red'
+
+        popup_text = f"""
+        <b>Borehole:</b> {row['borehole_name']}<br>
+        <b>District:</b> {row['district']}<br>
+        <b>Village:</b> {row['village']}<br>
+        <b>Yield:</b> {row['yield_lph']} LPH<br>
+        <b>Status:</b> {row['drilling_status']}
+        """
+
+        folium.Marker(
+            location=[row['latitude'], row['longitude']],
+            popup=popup_text,
+            icon=folium.Icon(color=color)
+        ).add_to(m)
+
+st_folium(m, width=1200, height=600)
+
+# =====================================================
+# DOWNLOAD CSV
+# =====================================================
+
+csv = filtered_df.to_csv(index=False).encode('utf-8')
+
+st.download_button(
+    label="Download Filtered Data",
+    data=csv,
+    file_name='boreholes.csv',
+    mime='text/csv'
+)
+```
+
+---
+
+# 4. Run the Application
+
+Open terminal in the project folder:
+
+```bash
+streamlit run app.py
+```
+
+The app will open in your browser automatically.
+
+---
+
+# 5. Connecting Supabase
+
+In Supabase:
+
+1. Open your project.
+2. Go to:
+
+   * Settings
+   * Database
+3. Copy:
+
+   * Host
+   * Database name
+   * Password
+   * Port
+
+Replace these values in the code:
+
+```python
+DB_HOST = "YOUR_HOST"
+DB_NAME = "postgres"
+DB_USER = "postgres"
+DB_PASSWORD = "YOUR_PASSWORD"
+DB_PORT = "5432"
+```
+
+---
+
+# 6. Features of the System
+
+## Search Functionality
+
+Users can:
+
+* Search boreholes by name.
+* Filter boreholes by district.
+
+---
+
+## Dashboard Analytics
+
+The dashboard automatically calculates:
+
+* Total boreholes drilled
+* Successful boreholes
+* Failed boreholes
+* Success percentage
+* Failure percentage
+
+---
+
+## Interactive Leaflet Map
+
+The map:
+
+* Displays all borehole locations.
+* Uses coordinates from the database.
+* Shows popups with borehole information.
+* Uses:
+
+  * Green markers = successful boreholes
+  * Red markers = failed boreholes
+
+---
+
+# 7. Suggested Improvements
+
+You can later add:
+
+* User login system
+* Admin dashboard
+* Upload CSV functionality
+* PDF report generation
+* Satellite basemap layers
+* Spatial analysis
+* Heatmaps
+* Borehole clustering
+* Water quality analysis
+* Mobile responsiveness
+* Real-time database updates
+
+---
+
+# 8. Recommended Folder Structure
+
+```text
+borehole_dashboard/
+│
+├── app.py
+├── requirements.txt
+├── assets/
+├── data/
+└── README.md
+```
+
+---
+
+# 9. requirements.txt
+
+Create a file called:
+
+```text
+requirements.txt
+```
+
+Add:
+
+```text
+streamlit
+pandas
+psycopg2-binary
+sqlalchemy
+folium
+streamlit-folium
+plotly
+```
+
+---
+
+# 10. Example Future GIS Expansion
+
+You can later integrate:
+
+* PostGIS
+* GeoServer
+* QGIS Server
+* ArcGIS Online
+* Remote sensing layers
+* Borehole suitability models
+* Groundwater interpolation
+* Aquifer analysis
+
+This can evolve into a complete Web GIS groundwater management system.
