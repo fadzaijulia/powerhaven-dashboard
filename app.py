@@ -341,12 +341,12 @@ You can later add:
 
 ```text
 borehole_dashboard/
-│
-├── app.py
-├── requirements.txt
-├── assets/
-├── data/
-└── README.md
+
+ app.py
+ requirements.txt
+ assets/
+ data/
+ README.md
 ```
 
 ---
